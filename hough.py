@@ -364,6 +364,11 @@ points.sort(key = lambda x:-math.atan2(x[0] - center[1], x[1] - center[0]))
 M = cv2.getPerspectiveTransform(np.float32(points)*rszp,np.float32(just_board_pts))
 just_board = cv2.warpPerspective(original_image,M,(500,500))
 
+
+just_center_pts = [[2000,0],[2000,2000],[0,2000],[0,0]]
+M = cv2.getPerspectiveTransform(np.float32(points)*rszp,np.float32(just_center_pts))
+just_center = cv2.warpPerspective(original_image,M,(2000,2000))[840:1160, 840:1160]
+
 plt.subplot(2,3,5),plt.imshow(cv2.cvtColor(just_board,cv2.COLOR_BGR2RGB))
 plt.title('board'), plt.xticks([]), plt.yticks([])
 
@@ -372,20 +377,18 @@ quater = [  cv2.cvtColor(np.rot90(np.rot90(just_board[0:250,0:250])), cv2.COLOR_
             cv2.cvtColor(just_board[250:500,250:500], cv2.COLOR_BGR2GRAY),
             cv2.cvtColor(np.rot90(np.rot90(np.rot90(just_board[0:250,250:500]))), cv2.COLOR_BGR2GRAY)]
 center = just_board[210:290, 210:290]
-center = padding(center, 20, 255)
+# center = padding(center, 20, 255)
 
-cv2.cvtColor(center, cv2.COLOR_BGR2HSV)
+# cv2.cvtColor(center, cv2.COLOR_BGR2HSV)
 
-lap = cv2.Laplacian(center[:,:,1], cv2.CV_64F,ksize=11)
-lap = lap - np.min(lap)
-lap = np.uint8(lap * (255.0/np.max(lap)))
-ret, th = cv2.threshold(center[:,:,1], 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-ret, th = cv2.threshold(center[:,:,1], ret +20, 255, cv2.THRESH_BINARY)
+# lap = cv2.Laplacian(center[:,:,1], cv2.CV_64F,ksize=11)
+# lap = lap - np.min(lap)
+# lap = np.uint8(lap * (255.0/np.max(lap)))
+# ret, th = cv2.threshold(center[:,:,1], 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+# ret, th = cv2.threshold(center[:,:,1], ret +20, 255, cv2.THRESH_BINARY)
 
 quater_rank = [[],[],[],[]]
 temps = []
-plt.subplot(2,3,6),plt.imshow(th, cmap='gray')
-plt.title('center'), plt.xticks([]), plt.yticks([])
 
 for i in range(17):
     template = cv2.cvtColor(cv2.imread('ricochetboard/' + str(i + 1) + ".jpg"), cv2.COLOR_BGR2GRAY)
@@ -415,5 +418,67 @@ for i in range(4):
 
 # plt.subplot(2,3,6),plt.imshow(cv2.cvtColor(just_board,cv2.COLOR_BGR2RGB))
 # plt.title('luboard'), plt.xticks([]), plt.yticks([])
+
+
+
+template_path = "simbol/"
+template_filename = "scan-018.jpg"
+
+akaze = cv2.AKAZE_create() 
+
+# 文字画像を読み込んで特徴量計算
+expand_template=0.4
+whitespace = 20
+template_temp = cv2.imread(template_path + template_filename, 0)
+height, width = template_temp.shape[:2]
+template_img=np.ones((height+whitespace*2, width+whitespace*2),np.uint8)*255
+template_img[whitespace:whitespace + height, whitespace:whitespace+width] = template_temp
+template_img = cv2.resize(template_img, None, fx = expand_template, fy = expand_template)
+kp_temp, des_temp = akaze.detectAndCompute(template_img, None)
+
+# 間取り図を読み込んで特徴量計算
+expand_sample = 1
+sample_img = cv2.cvtColor(just_center, cv2.COLOR_BGR2GRAY)
+sample_img = cv2.resize(sample_img, None, fx = expand_sample, fy = expand_sample)
+kp_samp, des_samp = akaze.detectAndCompute(sample_img, None)
+
+# 特徴量マッチング実行
+bf = cv2.BFMatcher()
+matches = bf.knnMatch(des_temp, des_samp, k=2)
+
+# マッチング精度が高いもののみ抽出
+ratio = 0.9
+good = []
+for m, n in matches:
+    if m.distance < ratio * n.distance:
+        good.append(m)
+
+if len(good)>5:
+    src_pts = np.float32([ kp_temp[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
+    dst_pts = np.float32([ kp_samp[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
+
+    M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
+    matchesMask = mask.ravel().tolist()
+
+    h,w = template_img.shape
+    pts = np.float32([ [0,0],[0,h-1],[w-1,h-1],[w-1,0] ]).reshape(-1,1,2)
+    dst = cv2.perspectiveTransform(pts,M)
+
+    sample_img = cv2.polylines(sample_img,[np.int32(dst)],True,255,3, cv2.LINE_AA)
+
+else:
+    print("Not enough matches are found - %d/%d" % (len(good), 5))
+    matchesMask = None
+
+draw_params = dict(matchColor = (0,255,0), # draw matches in green color
+                   singlePointColor = None,
+                   matchesMask = matchesMask, # draw only inliers
+                   flags = 2)
+
+img3 = cv2.drawMatches(template_img, kp_temp,sample_img,kp_samp,good,None,**draw_params)
+
+plt.subplot(2,3,6),plt.imshow(cv2.cvtColor(img3,cv2.COLOR_BGR2RGB))
+plt.title('lines'), plt.xticks([]), plt.yticks([])
+
 
 plt.show()
