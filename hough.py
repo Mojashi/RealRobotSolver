@@ -13,10 +13,13 @@ def multi_logical_and(*args):
     return result
 
 # 2値画像について、周囲1ピクセルをFalseで埋めるメソッドです
-def padding(binary_image):
-    row, col = np.shape(binary_image)
-    result = np.zeros((row+2,col+2))
-    result[1:-1, 1:-1] = binary_image[:, :]
+def padding(image, pad = 1, v = 1):
+    shape = list(image.shape)
+    shape[0] += pad*2
+    shape[1] += pad*2
+    print(shape)
+    result = np.full(tuple(shape), v, dtype=image.dtype)
+    result[pad:-pad, pad:-pad] = image
     return result
 
 # paddingの逆です
@@ -223,7 +226,8 @@ def template_matching_zncc(src, temp):
     return (pt[1], pt[0])
 
 
-image = cv2.imread('board.jpg')
+image = cv2.imread('testcase/board4.jpg')
+original_image = image
 
 rszp = (np.sqrt((image.shape[0] * image.shape[1]) / 300000))
 print(rszp)
@@ -254,8 +258,8 @@ plt.subplot(2,3,3),plt.imshow(closing,cmap = 'gray')
 plt.title('binary'), plt.xticks([]), plt.yticks([])
 
 shortEdge = min(th.shape[0],th.shape[0])
-maxLinegap = shortEdge*0.03
-lines = cv2.HoughLinesP(closing, 1, np.pi / 360, 80,minLineLength=shortEdge*0.7, maxLineGap=maxLinegap)
+maxLinegap = shortEdge*0.05
+lines = cv2.HoughLinesP(closing, 1, np.pi / 720, 80,minLineLength=shortEdge*0.7, maxLineGap=maxLinegap)
 
 
 arrive = np.ones(len(lines))
@@ -357,28 +361,44 @@ for i in range(4):
 points.sort(key = lambda x:-math.atan2(x[0] - center[1], x[1] - center[0]))
 
 
-M = cv2.getPerspectiveTransform(np.float32(points),np.float32(just_board_pts))
-just_board = cv2.warpPerspective(image,M,(500,500))
+M = cv2.getPerspectiveTransform(np.float32(points)*rszp,np.float32(just_board_pts))
+just_board = cv2.warpPerspective(original_image,M,(500,500))
 
 plt.subplot(2,3,5),plt.imshow(cv2.cvtColor(just_board,cv2.COLOR_BGR2RGB))
 plt.title('board'), plt.xticks([]), plt.yticks([])
 
+quater = [  cv2.cvtColor(np.rot90(np.rot90(just_board[0:250,0:250])), cv2.COLOR_BGR2GRAY),
+            cv2.cvtColor(np.rot90(just_board[250:500,0:250]), cv2.COLOR_BGR2GRAY),
+            cv2.cvtColor(just_board[250:500,250:500], cv2.COLOR_BGR2GRAY),
+            cv2.cvtColor(np.rot90(np.rot90(np.rot90(just_board[0:250,250:500]))), cv2.COLOR_BGR2GRAY)]
+center = just_board[210:290, 210:290]
+center = padding(center, 20, 255)
 
-plt.subplot(2,3,6),plt.imshow(cv2.cvtColor(just_board,cv2.COLOR_BGR2RGB))
-plt.title('board'), plt.xticks([]), plt.yticks([])
+cv2.cvtColor(center, cv2.COLOR_BGR2HSV)
 
+lap = cv2.Laplacian(center[:,:,1], cv2.CV_64F,ksize=11)
+lap = lap - np.min(lap)
+lap = np.uint8(lap * (255.0/np.max(lap)))
+ret, th = cv2.threshold(center[:,:,1], 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+ret, th = cv2.threshold(center[:,:,1], ret +20, 255, cv2.THRESH_BINARY)
 
+quater_rank = [[],[],[],[]]
+temps = []
+plt.subplot(2,3,6),plt.imshow(th, cmap='gray')
+plt.title('center'), plt.xticks([]), plt.yticks([])
 
-# template = cv2.cvtColor(cv2.imread("simbol/scan-008.jpg"),cv2.COLOR_BGR2GRAY)
-# template=cv2.resize(template, dsize=(250,250))
-# tmpmatch = cv2.matchTemplate(cv2.cvtColor(just_board,cv2.COLOR_BGR2GRAY), template, cv2.TM_CCOEFF_NORMED)
-# min_value, max_value, min_pt, max_pt = cv2.minMaxLoc(tmpmatch)
-# pt = max_pt
-# print(pt)
-# h, w = template.shape
+for i in range(17):
+    template = cv2.cvtColor(cv2.imread('ricochetboard/' + str(i + 1) + ".jpg"), cv2.COLOR_BGR2GRAY)
+    template = cv2.resize(template, dsize=(250, 250))
 
-# # テンプレートマッチングの結果を出力
-# just_board = cv2.rectangle(just_board, (pt[0], pt[1] ), (pt[0] + w, pt[1] + h), (0,0,200), 3)
+    for j in range(4):
+        tmpmatch = cv2.matchTemplate(quater[j], template, cv2.TM_CCOEFF_NORMED)
+        min_value, max_value, min_pt, max_pt = cv2.minMaxLoc(tmpmatch)
+        quater_rank[j].append((-max_value, max_pt, i))
+
+for i in range(4):
+    quater_rank[i].sort()
+    print(quater_rank[i][0][2] + 1)
 
 
 # template = cv2.cvtColor(cv2.imread("simbol/scan-003.jpg"),cv2.COLOR_BGR2GRAY)
