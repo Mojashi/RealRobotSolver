@@ -225,6 +225,28 @@ def template_matching_zncc(src, temp):
 
     return (pt[1], pt[0])
 
+def detect_circle(img, minR, maxR):
+    l = 1
+    r = 200
+    
+    img = cv2.GaussianBlur(img, (5,5), 0)
+    while True:
+        if cv2.HoughCircles(img,cv2.HOUGH_GRADIENT,1,10,param1=50,param2=r,minRadius=minR,maxRadius=maxR) is None:
+            break
+        r += 100
+
+    while r-l > 1:
+        mid = (l + r) / 2
+        circles = cv2.HoughCircles(img,cv2.HOUGH_GRADIENT,1,10,param1=50,param2=mid,minRadius=minR,maxRadius=maxR)
+        if circles is None:
+            r = mid
+        elif circles.shape[1] == 1:
+            return circles[0][0]
+        else:
+            l = mid
+
+    circles = cv2.HoughCircles(img,cv2.HOUGH_GRADIENT,1,10,param1=50,param2=l,minRadius=minR,maxRadius=maxR)
+    return circles[0][0]
 
 image = cv2.imread('testcase/board4.jpg')
 original_image = image
@@ -233,7 +255,7 @@ rszp = (np.sqrt((image.shape[0] * image.shape[1]) / 300000))
 print(rszp)
 image = cv2.resize(image, (int(image.shape[1]/rszp),int(image.shape[0] /rszp)))
 
-plt.subplot(2,3,1),plt.imshow(image)
+plt.subplot(2,3,1),plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 plt.title('image'), plt.xticks([]), plt.yticks([])
 
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -376,16 +398,44 @@ quater = [  cv2.cvtColor(np.rot90(np.rot90(just_board[0:250,0:250])), cv2.COLOR_
             cv2.cvtColor(np.rot90(just_board[250:500,0:250]), cv2.COLOR_BGR2GRAY),
             cv2.cvtColor(just_board[250:500,250:500], cv2.COLOR_BGR2GRAY),
             cv2.cvtColor(np.rot90(np.rot90(np.rot90(just_board[0:250,250:500]))), cv2.COLOR_BGR2GRAY)]
-center = just_board[210:290, 210:290]
-# center = padding(center, 20, 255)
 
-# cv2.cvtColor(center, cv2.COLOR_BGR2HSV)
 
-# lap = cv2.Laplacian(center[:,:,1], cv2.CV_64F,ksize=11)
-# lap = lap - np.min(lap)
-# lap = np.uint8(lap * (255.0/np.max(lap)))
-# ret, th = cv2.threshold(center[:,:,1], 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-# ret, th = cv2.threshold(center[:,:,1], ret +20, 255, cv2.THRESH_BINARY)
+just_center = padding(just_center, 20, 255)
+
+lap = cv2.Laplacian(just_center[:,:,1], cv2.CV_64F,ksize=11)
+lap = lap - np.min(lap)
+lap = np.uint8(lap * (255.0/np.max(lap)))
+ret, th = cv2.threshold(lap, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+
+# just_center = cv2.cvtColor(just_center, cv2.COLOR_BGR2GRAY)
+
+
+circle = detect_circle(lap, 45, 60)
+
+mark_lu = np.int32(np.maximum(0,circle[:2] - circle[2]))
+mark_rd = np.int32(np.minimum(just_center.shape[0],circle[:2] + circle[2]))
+
+
+just_mark = just_center[mark_lu[1]:mark_rd[1],mark_lu[0]:mark_rd[0]]
+
+mask = np.zeros_like(just_mark)
+cv2.circle(mask, (int(mask.shape[0] / 2),int(mask.shape[0] / 2)), int(mask.shape[0] / 2), (255,255,255), thickness=-1)
+
+just_mark = cv2.cvtColor(np.bitwise_and(just_mark, mask),cv2.COLOR_BGR2GRAY)
+ret, th = cv2.threshold(just_mark, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+contours, hierarchy = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+maxArea = 0
+maxAreaCont = None
+for cont in contours:
+    area = cv2.contourArea(cont)
+    if maxArea < area:
+        maxArea = area
+        maxAreaCont = cont
+
+cv2.fillPoly(th,[maxAreaCont],255)
+plt.subplot(2,3,6),plt.imshow(th,cmap='gray')
+plt.title('center'), plt.xticks([]), plt.yticks([])
 
 quater_rank = [[],[],[],[]]
 temps = []
@@ -416,69 +466,71 @@ for i in range(4):
 # just_board = cv2.rectangle(just_board, (pt[0], pt[1] ), (pt[0] + w, pt[1] + h), (0,200,0), 3)
 
 
-# plt.subplot(2,3,6),plt.imshow(cv2.cvtColor(just_board,cv2.COLOR_BGR2RGB))
-# plt.title('luboard'), plt.xticks([]), plt.yticks([])
 
 
 
-template_path = "simbol/"
-template_filename = "scan-018.jpg"
+# template_path = "simbol/"
+# template_filename = "scan-018.jpg"
 
-akaze = cv2.AKAZE_create() 
+# akaze = cv2.AKAZE_create() 
 
-# 文字画像を読み込んで特徴量計算
-expand_template=0.4
-whitespace = 20
-template_temp = cv2.imread(template_path + template_filename, 0)
-height, width = template_temp.shape[:2]
-template_img=np.ones((height+whitespace*2, width+whitespace*2),np.uint8)*255
-template_img[whitespace:whitespace + height, whitespace:whitespace+width] = template_temp
-template_img = cv2.resize(template_img, None, fx = expand_template, fy = expand_template)
-kp_temp, des_temp = akaze.detectAndCompute(template_img, None)
+# # 文字画像を読み込んで特徴量計算
+# expand_template=0.4
+# whitespace = 20
+# template_temp = cv2.imread(template_path + template_filename, 0)
+# height, width = template_temp.shape[:2]
+# template_img=np.ones((height+whitespace*2, width+whitespace*2),np.uint8)*255
+# template_img[whitespace:whitespace + height, whitespace:whitespace+width] = template_temp
+# template_img = cv2.resize(template_img, None, fx = expand_template, fy = expand_template)
+# kp_temp, des_temp = akaze.detectAndCompute(template_img, None)
 
-# 間取り図を読み込んで特徴量計算
-expand_sample = 1
-sample_img = cv2.cvtColor(just_center, cv2.COLOR_BGR2GRAY)
-sample_img = cv2.resize(sample_img, None, fx = expand_sample, fy = expand_sample)
-kp_samp, des_samp = akaze.detectAndCompute(sample_img, None)
+# # 間取り図を読み込んで特徴量計算
+# expand_sample = 1
+# sample_img = cv2.cvtColor(just_center, cv2.COLOR_BGR2GRAY)
+# sample_img = cv2.resize(sample_img, None, fx = expand_sample, fy = expand_sample)
+# kp_samp, des_samp = akaze.detectAndCompute(sample_img, None)
 
-# 特徴量マッチング実行
-bf = cv2.BFMatcher()
-matches = bf.knnMatch(des_temp, des_samp, k=2)
+# # 特徴量マッチング実行
+# bf = cv2.BFMatcher()
+# matches = bf.knnMatch(des_temp, des_samp, k=2)
 
-# マッチング精度が高いもののみ抽出
-ratio = 0.9
-good = []
-for m, n in matches:
-    if m.distance < ratio * n.distance:
-        good.append(m)
+# # マッチング精度が高いもののみ抽出
+# ratio = 0.965
+# good = []
+# for m, n in matches:
+#     if m.distance < ratio * n.distance:
+#         good.append(m)
 
-if len(good)>5:
-    src_pts = np.float32([ kp_temp[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
-    dst_pts = np.float32([ kp_samp[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
+# if len(good)>5:
+#     src_pts = np.float32([ kp_temp[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
+#     dst_pts = np.float32([ kp_samp[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
 
-    M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
-    matchesMask = mask.ravel().tolist()
+#     M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
+#     matchesMask = mask.ravel().tolist()
 
-    h,w = template_img.shape
-    pts = np.float32([ [0,0],[0,h-1],[w-1,h-1],[w-1,0] ]).reshape(-1,1,2)
-    dst = cv2.perspectiveTransform(pts,M)
+#     h,w = template_img.shape
+#     pts = np.float32([ [0,0],[0,h-1],[w-1,h-1],[w-1,0] ]).reshape(-1,1,2)
+#     dst = cv2.perspectiveTransform(pts,M)
+#     print(dst)
+#     print(pts)
+#     wp = cv2.warpPerspective(sample_img,cv2.getPerspectiveTransform(dst, pts),(h,w))
 
-    sample_img = cv2.polylines(sample_img,[np.int32(dst)],True,255,3, cv2.LINE_AA)
+#     plt.subplot(2,3,6),plt.imshow(cv2.cvtColor(wp,cv2.COLOR_BGR2RGB))
+#     plt.title('lines'), plt.xticks([]), plt.yticks([])
 
-else:
-    print("Not enough matches are found - %d/%d" % (len(good), 5))
-    matchesMask = None
 
-draw_params = dict(matchColor = (0,255,0), # draw matches in green color
-                   singlePointColor = None,
-                   matchesMask = matchesMask, # draw only inliers
-                   flags = 2)
+#     sample_img = cv2.polylines(sample_img,[np.int32(dst)],True,255,3, cv2.LINE_AA)
 
-img3 = cv2.drawMatches(template_img, kp_temp,sample_img,kp_samp,good,None,**draw_params)
+# else:
+#     print("Not enough matches are found - %d/%d" % (len(good), 5))
+#     matchesMask = None
 
-plt.subplot(2,3,6),plt.imshow(cv2.cvtColor(img3,cv2.COLOR_BGR2RGB))
-plt.title('lines'), plt.xticks([]), plt.yticks([])
+# draw_params = dict(matchColor = (0,255,0), # draw matches in green color
+#                    singlePointColor = None,
+#                    matchesMask = matchesMask, # draw only inliers
+#                    flags = 2)
+
+# img3 = cv2.drawMatches(template_img, kp_temp,sample_img,kp_samp,good,None,**draw_params)
 
 
 plt.show()
