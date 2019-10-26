@@ -160,7 +160,7 @@ def line_intersection_point(p1,p2,p3,p4):
 
     div = det(xdiff, ydiff)
     if div == 0:
-       raise Exception('lines do not intersect')
+       return None
 
     d = (det(*(p1,p2)), det(*(p3,p4)))
     x = det(d, xdiff) / div
@@ -248,7 +248,7 @@ def detect_circle(img, minR, maxR):
     circles = cv2.HoughCircles(img,cv2.HOUGH_GRADIENT,1,10,param1=50,param2=l,minRadius=minR,maxRadius=maxR)
     return circles[0][0]
 
-image = cv2.imread('testcase/board4.jpg')
+image = cv2.imread('testcase/board2.jpg')
 original_image = image
 
 rszp = (np.sqrt((image.shape[0] * image.shape[1]) / 300000))
@@ -269,14 +269,14 @@ print(lap.shape)
 lap = lap - np.min(lap)
 lap = np.uint8(lap * (255.0/np.max(lap)))
 
-plt.subplot(2,3,2),plt.imshow(lap,cmap = 'gray')
-plt.title('laplacian k=11'), plt.xticks([]), plt.yticks([])
+# plt.subplot(2,3,2),plt.imshow(lap,cmap = 'gray')
+# plt.title('laplacian k=11'), plt.xticks([]), plt.yticks([])
 ret, th = cv2.threshold(lap, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
 
 kernel = np.ones((3, 3), np.uint8)
 closing = np.uint8(cv2.morphologyEx(th, cv2.MORPH_OPEN, kernel))
 
-plt.subplot(2,3,3),plt.imshow(closing,cmap = 'gray')
+plt.subplot(2,3,2),plt.imshow(closing,cmap = 'gray')
 plt.title('binary'), plt.xticks([]), plt.yticks([])
 
 shortEdge = min(th.shape[0],th.shape[0])
@@ -354,7 +354,7 @@ for line in oklines:
     i+=1
 
 
-plt.subplot(2,3,4),plt.imshow(cv2.cvtColor(lineimg,cv2.COLOR_BGR2RGB),cmap = 'gray')
+plt.subplot(2,3,3),plt.imshow(cv2.cvtColor(lineimg,cv2.COLOR_BGR2RGB),cmap = 'gray')
 plt.title('lines'), plt.xticks([]), plt.yticks([])
 
 points = []
@@ -391,7 +391,7 @@ just_center_pts = [[2000,0],[2000,2000],[0,2000],[0,0]]
 M = cv2.getPerspectiveTransform(np.float32(points)*rszp,np.float32(just_center_pts))
 just_center = cv2.warpPerspective(original_image,M,(2000,2000))[840:1160, 840:1160]
 
-plt.subplot(2,3,5),plt.imshow(cv2.cvtColor(just_board,cv2.COLOR_BGR2RGB))
+plt.subplot(2,3,4),plt.imshow(cv2.cvtColor(just_board,cv2.COLOR_BGR2RGB))
 plt.title('board'), plt.xticks([]), plt.yticks([])
 
 quater = [  cv2.cvtColor(np.rot90(np.rot90(just_board[0:250,0:250])), cv2.COLOR_BGR2GRAY),
@@ -433,9 +433,59 @@ for cont in contours:
         maxArea = area
         maxAreaCont = cont
 
-cv2.fillPoly(th,[maxAreaCont],255)
-plt.subplot(2,3,6),plt.imshow(th,cmap='gray')
+M = cv2.moments(cont)
+cx = int(M['m10']/M['m00'])
+cy = int(M['m01']/M['m00'])
+
+cv2.circle(th, (cx,cy), 3, 0)
+plt.subplot(2,3,5),plt.imshow(th)
 plt.title('center'), plt.xticks([]), plt.yticks([])
+
+dist = np.zeros(720)
+
+for ang in range(720):
+    rad = math.radians(ang/2)
+    v = np.array([math.cos(rad), math.sin(rad)])*th.shape[0]*2 + [cx,cy]
+
+    for p1,p2 in zip(maxAreaCont[:,0,:], np.roll(maxAreaCont[:,0,:],1,axis=0)):
+        if intersect((cx,cy),v, p1,p2):
+            po = np.array(line_intersection_point((cx,cy),v, p1,p2))
+            dist[ang] = np.linalg.norm(po - [cx,cy], ord = 2)
+            break
+    if dist[ang] == 0:
+        dist[ang] = dist[ang-1]
+
+# dist = np.linalg.norm(maxAreaCont - [[cx,cy]], ord = 2, axis = -1)
+print(dist)
+dist = np.tile(dist, 3)
+freq = np.abs(np.fft.fft(dist))
+#print(freq)
+plt.subplot(2,3,6),plt.plot(dist)
+
+
+# convex = cv2.convexHull(maxAreaCont, clockwise=True)
+# #approx = cv2.approxPolyDP(convex,0.02*cv2.arcLength(convex,True) ,True)
+# buf =np.zeros_like(th)
+# cv2.fillPoly(buf,[convex],255)
+
+# bef = convex[-1][0]
+# minRad = 333333
+# minPoint = None
+# for cur, nex in zip(convex[:,0,:], np.roll(convex, -1)[:,0,:]):
+#     v1 = bef - cur
+#     v2 = nex - cur
+#     cs = np.dot(v1,v2)/np.linalg.norm(v1, ord=2)/np.linalg.norm(v2, ord=2)
+#     rad = abs(math.acos(cs))
+#     if minRad > cs:
+#         minRad = cs
+#         minPoint = cur
+#     bef = cur
+
+# cv2.circle(buf, tuple(minPoint), 3, 255)
+# print(minPoint)
+# print(minRad)
+# plt.subplot(2,3,6),plt.imshow(buf)
+# plt.title('center'), plt.xticks([]), plt.yticks([])
 
 quater_rank = [[],[],[],[]]
 temps = []
