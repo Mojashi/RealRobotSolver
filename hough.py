@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import cv2
+from scipy import fftpack
 import tkinter
 from matplotlib import pyplot as plt
 from PIL import Image, ImageTk
@@ -174,7 +175,7 @@ def intersect(p1, p2, p3, p4):
     tc2 = int((p1[0] - p2[0]) * (p4[1] - p1[1]) + (p1[1] - p2[1]) * (p1[0] - p4[0]))
     td1 = int((p3[0] - p4[0]) * (p1[1] - p3[1]) + (p3[1] - p4[1]) * (p3[0] - p1[0]))
     td2 = int((p3[0] - p4[0]) * (p2[1] - p3[1]) + (p3[1] - p4[1]) * (p3[0] - p2[0]))
-    d= tc1*tc2<0 and td1*td2<0
+    d= tc1*tc2<=0 and td1*td2<=0
     return d
 def lenline(p1,p2):
     return np.sqrt((p2[0] - p1[0])*(p2[0] - p1[0])+(p2[1] - p1[1])*(p2[1] - p1[1]))
@@ -248,7 +249,7 @@ def detect_circle(img, minR, maxR):
     circles = cv2.HoughCircles(img,cv2.HOUGH_GRADIENT,1,10,param1=50,param2=l,minRadius=minR,maxRadius=maxR)
     return circles[0][0]
 
-image = cv2.imread('testcase/board2.jpg')
+image = cv2.imread('testcase/board3.jpg')
 original_image = image
 
 rszp = (np.sqrt((image.shape[0] * image.shape[1]) / 300000))
@@ -422,6 +423,8 @@ mask = np.zeros_like(just_mark)
 cv2.circle(mask, (int(mask.shape[0] / 2),int(mask.shape[0] / 2)), int(mask.shape[0] / 2), (255,255,255), thickness=-1)
 
 just_mark = cv2.cvtColor(np.bitwise_and(just_mark, mask),cv2.COLOR_BGR2GRAY)
+#just_mark = cv2.cvtColor(np.bitwise_and(just_mark, mask),cv2.COLOR_BGR2HSV)
+#just_mark = np.amax(just_mark[:,:,1:3], axis=-1)
 ret, th = cv2.threshold(just_mark, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
 contours, hierarchy = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -433,22 +436,34 @@ for cont in contours:
         maxArea = area
         maxAreaCont = cont
 
-M = cv2.moments(cont)
+convex = cv2.convexHull(maxAreaCont, hull=True, clockwise=True)
+convexArc = cv2.arcLength(convex, True)
+arc = cv2.arcLength(maxAreaCont, True)
+
+arcRatio = arc / convexArc
+
+print(arcRatio)
+if arcRatio > 1.3:
+    print()
+
+M = cv2.moments(maxAreaCont)
 cx = int(M['m10']/M['m00'])
 cy = int(M['m01']/M['m00'])
 
 cv2.circle(th, (cx,cy), 3, 0)
-plt.subplot(2,3,5),plt.imshow(th)
-plt.title('center'), plt.xticks([]), plt.yticks([])
+# plt.subplot(2,3,5),plt.imshow(th)
+# plt.title('center'), plt.xticks([]), plt.yticks([])
 
-dist = np.zeros(720)
+sz = 480
 
-for ang in range(720):
-    rad = math.radians(ang/2)
+dist = np.zeros(sz)
+
+for ang in range(sz):
+    rad = math.radians(ang*(360/sz))
     v = np.array([math.cos(rad), math.sin(rad)])*th.shape[0]*2 + [cx,cy]
 
     for p1,p2 in zip(maxAreaCont[:,0,:], np.roll(maxAreaCont[:,0,:],1,axis=0)):
-        if intersect((cx,cy),v, p1,p2):
+        if intersect((cx,cy),v, p1,p2) and line_intersection_point((cx,cy),v, p1,p2) is not None:
             po = np.array(line_intersection_point((cx,cy),v, p1,p2))
             dist[ang] = np.linalg.norm(po - [cx,cy], ord = 2)
             break
@@ -456,12 +471,68 @@ for ang in range(720):
         dist[ang] = dist[ang-1]
 
 # dist = np.linalg.norm(maxAreaCont - [[cx,cy]], ord = 2, axis = -1)
-print(dist)
-dist = np.tile(dist, 3)
-freq = np.abs(np.fft.fft(dist))
+#print(dist)
+#dist = dist - np.average(dist)
+freq = np.fft.fft(dist)
+freq2 = np.abs(freq[:(freq.shape[0] // 2)])
+freq2[0] = 0
 #print(freq)
-plt.subplot(2,3,6),plt.plot(dist)
+buf = np.zeros_like(th)
+for ang in range(sz):
+    rad = math.radians(ang*(360/sz))
+    v = np.array([math.cos(rad), math.sin(rad)])*dist[ang] + [cx,cy]
+    cv2.circle(buf, tuple(np.int32(v)),1,255)
 
+print(str(np.argmax(freq2)) + "角形")
+#print(freq2)
+#freq[7:] = 0
+plt.subplot(2,3,5),plt.imshow(th)
+# plt.subplot(2,3,6),plt.plot(freq2)
+
+# red = np.array([40,20,233])
+# green = np.array([40,180,40])
+# yellow = np.array([60,170,250])
+# blue = np.array([100,0,0])
+# white = np.array([255,255,255])
+
+red = cv2.cvtColor(np.uint8([[[0,0,255]]]), cv2.COLOR_BGR2Lab)
+green = cv2.cvtColor(np.uint8([[[0,255,0]]]), cv2.COLOR_BGR2Lab)
+yellow = cv2.cvtColor(np.uint8([[[0,255,255]]]), cv2.COLOR_BGR2Lab)
+blue = cv2.cvtColor(np.uint8([[[255,0,0]]]), cv2.COLOR_BGR2Lab)
+labimg = cv2.cvtColor(just_board, cv2.COLOR_BGR2Lab)
+
+red = np.float32(red)
+green = np.float32(green)
+labimg = np.float32(labimg)
+yellow = np.float32(yellow)
+red[:,:,0]  *=100/255
+red[:,:,1]  -= 128
+red[:,:,2]  -= 128
+
+yellow[:,:,0] *=100/255
+yellow[:,:,1] -= 128
+yellow[:,:,2] -= 128
+green[:,:,0]  *=100/255
+green[:,:,1]  -= 128
+green[:,:,2]  -= 128
+labimg[:,:,0]  *=100/255
+labimg[:,:,1]  -= 128
+labimg[:,:,2]  -= 128
+
+#ret, bdth = cv2.threshold(cv2.cvtColor(just_board, cv2.COLOR_BGR2HSV)[:,:,1], 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+# ret, bdth = cv2.threshold(cv2.cvtColor(just_board, cv2.COLOR_BGR2HSV)[:,:,1], ret + 50, 255, cv2.THRESH_BINARY)
+def extractColor(img, col, k):
+    rdot = np.linalg.norm(img - col,axis=-1) #- cv2.cvtColor(img, cv2.COLOR_Lab2HSV)[:,:,1]**(1/2)
+    border = np.sort(np.reshape(rdot, -1))[k] 
+    return (rdot < border)
+
+# buf = np.minimum(np.reshape(extractColor(just_board, yellow,2000),(500,500,1))*np.tile(yellow,(500,500,1))+
+#     np.reshape(extractColor(just_board, green,2000),(500,500,1))*np.tile(green,(500,500,1))+
+#     np.reshape(extractColor(just_board, blue,2000),(500,500,1))*np.tile(blue,(500,500,1))+
+#     np.reshape(extractColor(just_board, red,2000),(500,500,1))*np.tile(red,(500,500,1)), 255)
+
+norm = np.linalg.norm(labimg - red,axis=-1)
+plt.subplot(2,3,6),plt.imshow(norm / np.max(norm) * 255)#extractColor(cv2.cvtColor(just_board, cv2.COLOR_BGR2Lab), yellow,2000))
 
 # convex = cv2.convexHull(maxAreaCont, clockwise=True)
 # #approx = cv2.approxPolyDP(convex,0.02*cv2.arcLength(convex,True) ,True)
