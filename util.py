@@ -66,7 +66,45 @@ def coslines(p1,p2,p3,p4):
     d=((p2[0] - p1[0])*(p4[0] - p3[0]) + (p2[1] - p1[1]) * (p4[1] - p3[1])) / (lenline(p1,p2)*lenline(p3,p4))
     return d
 
+# def shortcutContour(cnt, k):
+#     dist = np.ndarray(cnt.shape[0])
+#     dist[0] = 0
+#     shu = 0
+
+#     for i, (fr, to) in enumerate(zip(cnt[:,0], np.roll(cnt[:,0], -1))):
+#         if i == cnt.shape[0]-1:
+#             shu = lenline(fr,to) + dist[i]
+#             break
+#         dist[i + 1] = lenline(fr,to) + dist[i]
+    
+#     shortcut = []
+
+#     i = 0
+
+#     while int(i) < int(cnt.shape[0]):
+#         maxDist = lenline(cnt[i][0], cnt[(i + 1)%cnt.shape[0]][0])
+#         maxPoint = cnt[(i + 1)%cnt.shape[0]]
+
+#         for j in range(cnt.shape[0]):
+#             dis = np.linalg.norm(cnt[i][0] - cnt[j][0])
+#             if dis <= k:
+#                 shudist = min(abs(dist[i] - dist[j]),abs(dist[i] - shu - dist[j]))
+#                 if shudist > maxDist:
+#                     maxDist = shudist
+#                     maxPoint = j
+
+#         i = maxPoint
+#         shortcut.append(cnt[maxPoint])
+#         i+=1
+    
+#     return np.array(shortcut)
+
+                
 def shortcutContour(cnt, k):
+    hull = cv2.convexHull(cnt, returnPoints = False)
+    defects = cv2.convexityDefects(cnt,hull)
+    cutPoint = np.zeros(cnt.shape[0])
+
     dist = np.ndarray(cnt.shape[0])
     dist[0] = 0
     shu = 0
@@ -77,27 +115,10 @@ def shortcutContour(cnt, k):
             break
         dist[i + 1] = lenline(fr,to) + dist[i]
     
-    shortcut = []
+    for defect in defects:
+        s,e,f,d = defect[0]
 
-    i = 0
-
-    while int(i) < int(cnt.shape[0]):
-        maxDist = lenline(cnt[i][0], cnt[(i + 1)%cnt.shape[0]][0])
-        maxPoint = cnt[(i + 1)%cnt.shape[0]]
-
-        for j in range(cnt.shape[0]):
-            dis = np.linalg.norm(cnt[i][0] - cnt[j][0])
-            if dis <= k:
-                shudist = min(abs(dist[i] - dist[j]),abs(dist[i] - shu - dist[j]))
-                if shudist > maxDist:
-                    maxDist = shudist
-                    maxPoint = j
-
-        i = maxPoint
-        shortcut.append(cnt[maxPoint])
-        i+=1
-    
-    return np.array(shortcut)
-
-                
-
+        poss = np.where(np.linalg.norm(cnt - cnt[f]) < k)
+        for pos in poss:
+            shudist = min(abs(dist[f] - dist[pos]),abs(dist[f] - shu - dist[pos]),abs(dist[f] + shu - dist[pos]))
+            
